@@ -151,7 +151,7 @@ function DTR_OnUnitDamage takes nothing returns boolean
         return false
     endif
 
-    // Load and update data
+    // Load data
     
     set TargetHP = LoadReal(udg_DTR_Table, 3, TargetKey)
 
@@ -159,21 +159,23 @@ function DTR_OnUnitDamage takes nothing returns boolean
         set TempDmg = TargetHP
     endif
     
-    set udg_DTR_TotalDamageTaken = LoadReal(udg_DTR_Table, 0, TargetKey) 
-    set udg_DTR_TotalDamageTaken = udg_DTR_TotalDamageTaken + TempDmg
-    call SaveReal(udg_DTR_Table, 0, TargetKey, udg_DTR_TotalDamageTaken)
-
-    set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey) 
-    set udg_DTR_TotalUnitDamage = udg_DTR_TotalUnitDamage + TempDmg
-    call SaveReal(udg_DTR_Table, TargetKey, SourceKey, udg_DTR_TotalUnitDamage)
-
-    set udg_DTR_TotalSpellDamageTaken = LoadReal(udg_DTR_Table, 1, TargetKey)  
-    set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey)  
-
+    set udg_DTR_TotalDamageTaken = LoadReal(udg_DTR_Table, 0, TargetKey)   
+    set udg_DTR_TotalSpellDamageTaken = LoadReal(udg_DTR_Table, 1, TargetKey) 
     set udg_DTR_TotalPhysDamageTaken = LoadReal(udg_DTR_Table, 2, TargetKey)
+ 
+    set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey) 
+    set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey) 
     set udg_DTR_TotalPhysicalDamage = LoadReal(udg_DTR_Table, TargetKey + 200000, SourceKey)
 
     set udg_DTR_TotalPlayerDamage[PlayerId] = udg_DTR_TotalPlayerDamage[PlayerId] + TempDmg
+
+    // Update Data
+
+    set udg_DTR_TotalDamageTaken = udg_DTR_TotalDamageTaken + TempDmg
+    call SaveReal(udg_DTR_Table, 0, TargetKey, udg_DTR_TotalDamageTaken)
+
+    set udg_DTR_TotalUnitDamage = udg_DTR_TotalUnitDamage + TempDmg
+    call SaveReal(udg_DTR_Table, TargetKey, SourceKey, udg_DTR_TotalUnitDamage)
 
     if udg_IsDamageSpell == true then        
         set udg_DTR_TotalSpellDamageTaken = udg_DTR_TotalSpellDamageTaken + TempDmg
