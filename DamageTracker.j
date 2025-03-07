@@ -46,6 +46,10 @@
 //
 //===========================================================================
 
+function IsUnitAlive takes unit u returns boolean    
+    return (GetWidgetLife(u) > 0.405) 
+endfunction
+
 function DTR_ValidateUnit takes unit Source, unit Target returns boolean
     local integer Mode = udg_DTR_RegistrationMode
     local integer SourceId = GetUnitUserData(Source)
@@ -54,18 +58,20 @@ function DTR_ValidateUnit takes unit Source, unit Target returns boolean
     return (Mode == 1 and not udg_DTR_IsRegistered[SourceId]) or (Mode == 2 and not udg_DTR_IsRegistered[TargetId]) or (Mode == 3 and (not udg_DTR_IsRegistered[SourceId] or not udg_DTR_IsRegistered[TargetId]))
 endfunction
 
-function DTR_OnUnitDeath takes nothing returns boolean
-    local unit Source = GetKillingUnit()
-    local unit Target = GetTriggerUnit()
-    local integer SourceKey = GetHandleId(Source)
-    local integer TargetKey = GetHandleId(Target)  
+function DTR_ClearTableData takes integer TargetKey returns nothing
+    call RemoveSavedReal(udg_DTR_Table, 0, TargetKey)
+    call RemoveSavedReal(udg_DTR_Table, 1, TargetKey)
+    call RemoveSavedReal(udg_DTR_Table, 2, TargetKey)
+    call RemoveSavedReal(udg_DTR_Table, 3, TargetKey)
+    call RemoveSavedReal(udg_DTR_Table, 4, TargetKey)
 
-    if DTR_ValidateUnit(Source, Target) == true  then
-        set Source = null
-        set Target = null
-        return false
-    endif
-    
+    call FlushChildHashtable(udg_DTR_Table, TargetKey)
+    call FlushChildHashtable(udg_DTR_Table, TargetKey + 100000)
+    call FlushChildHashtable(udg_DTR_Table, TargetKey + 200000)
+
+endfunction
+
+function DTR_LoadTableData takes integer SourceKey, integer TargetKey returns nothing
     // Load all the total damage taken
     set udg_DTR_TotalDamageTaken = LoadReal(udg_DTR_Table, 0, TargetKey)
     set udg_DTR_TotalSpellDamageTaken = LoadReal(udg_DTR_Table, 1, TargetKey)
@@ -75,6 +81,60 @@ function DTR_OnUnitDeath takes nothing returns boolean
     set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey)
     set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey)
     set udg_DTR_TotalPhysicalDamage = LoadReal(udg_DTR_Table, TargetKey + 200000, SourceKey)
+endfunction
+
+function DTR_TimerCallback takes nothing returns nothing
+    local integer i = 0
+    local integer SourceKey
+    local integer TargetKey
+
+    loop
+        set i = i + 1
+        exitwhen i > udg_DTR_ActivePairs
+
+        set SourceKey = GetHandleId(udg_DTR_SourceArr[i])
+        set TargetKey = GetHandleId(udg_DTR_TargetArr[i])
+
+        if udg_DTR_TimeCounter[i] < udg_DTR_CleanupTime and IsUnitAlive(udg_DTR_TargetArr[i]) then
+
+            set udg_DTR_TimeCounter[i] = LoadReal(udg_DTR_Table, 4, TargetKey)
+            set udg_DTR_TimeCounter[i] = udg_DTR_TimeCounter[i] + 1
+            call SaveReal(udg_DTR_Table, 4, TargetKey, udg_DTR_TimeCounter[i])
+
+        else
+            if IsUnitAlive(udg_DTR_TargetArr[i]) then                
+                call DTR_ClearTableData(TargetKey)
+            endif
+
+            set udg_DTR_SourceArr[i] = udg_DTR_SourceArr[udg_DTR_ActivePairs]
+            set udg_DTR_SourceArr[udg_DTR_ActivePairs] = null
+            set udg_DTR_TargetArr[i] = udg_DTR_TargetArr[udg_DTR_ActivePairs]
+            set udg_DTR_TargetArr[udg_DTR_ActivePairs] = null
+            set udg_DTR_TimeCounter[i] = udg_DTR_TimeCounter[udg_DTR_ActivePairs]
+
+            set i = i - 1
+            set udg_DTR_ActivePairs = udg_DTR_ActivePairs - 1
+
+            if udg_DTR_ActivePairs == 0 then
+                call PauseTimer(udg_DTR_Timer)
+            endif
+        endif
+    endloop
+endfunction
+
+function DTR_OnUnitDeath takes nothing returns boolean
+    local unit Source = GetKillingUnit()
+    local unit Target = GetTriggerUnit()
+    local integer SourceKey = GetHandleId(Source)
+    local integer TargetKey = GetHandleId(Target)  
+
+    if DTR_ValidateUnit(Source, Target)  then
+        set Source = null
+        set Target = null
+        return false
+    endif
+    
+    call DTR_LoadTableData(SourceKey, TargetKey)
 
     set udg_DTR_OverallDamagePercentage = 0.0
     set udg_DTR_SpellDamagePercentage = 0.0
@@ -103,13 +163,7 @@ function DTR_OnUnitDeath takes nothing returns boolean
     set udg_DTR_Source = null
     set udg_DTR_Target = null
     
-    call RemoveSavedReal(udg_DTR_Table, 0, TargetKey)
-    call RemoveSavedReal(udg_DTR_Table, 1, TargetKey)
-    call RemoveSavedReal(udg_DTR_Table, 2, TargetKey)
-    call RemoveSavedReal(udg_DTR_Table, 3, TargetKey)
-    call FlushChildHashtable(udg_DTR_Table, TargetKey)
-    call FlushChildHashtable(udg_DTR_Table, TargetKey + 100000)
-    call FlushChildHashtable(udg_DTR_Table, TargetKey + 200000)
+    call DTR_ClearTableData(TargetKey)
 
     set Source = null
     set Target = null
@@ -123,7 +177,7 @@ function DTR_BeforeUnitDamage takes nothing returns boolean
     local integer TargetKey = GetHandleId(Target)
     local real TargetHP = GetUnitState(Target, UNIT_STATE_LIFE)
 
-    if DTR_ValidateUnit(Source, Target) == true then
+    if DTR_ValidateUnit(Source, Target) then
         set Source = null
         set Target = null
         return false
@@ -145,7 +199,7 @@ function DTR_OnUnitDamage takes nothing returns boolean
     local real TempDmg = udg_DamageEventAmount
     local real TargetHP = 0.0
 
-    if DTR_ValidateUnit(Source, Target) == true then
+    if DTR_ValidateUnit(Source, Target) then
         set Source = null
         set Target = null
         return false
@@ -159,17 +213,26 @@ function DTR_OnUnitDamage takes nothing returns boolean
         set TempDmg = TargetHP
     endif
     
-    set udg_DTR_TotalDamageTaken = LoadReal(udg_DTR_Table, 0, TargetKey)   
-    set udg_DTR_TotalSpellDamageTaken = LoadReal(udg_DTR_Table, 1, TargetKey) 
-    set udg_DTR_TotalPhysDamageTaken = LoadReal(udg_DTR_Table, 2, TargetKey)
- 
-    set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey) 
-    set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey) 
-    set udg_DTR_TotalPhysicalDamage = LoadReal(udg_DTR_Table, TargetKey + 200000, SourceKey)
+    call DTR_LoadTableData(SourceKey, TargetKey)
 
     set udg_DTR_TotalPlayerDamage[PlayerId] = udg_DTR_TotalPlayerDamage[PlayerId] + TempDmg
 
+    if udg_DTR_TotalDamageTaken == 0.0 and udg_DTR_AutoCleanup == true then
+        
+        // New entry
+        set udg_DTR_ActivePairs = udg_DTR_ActivePairs + 1
+        set udg_DTR_TimeCounter[udg_DTR_ActivePairs] = 0.0
+        set udg_DTR_SourceArr[udg_DTR_ActivePairs] = Source
+        set udg_DTR_TargetArr[udg_DTR_ActivePairs] = Target
+
+        if udg_DTR_ActivePairs == 1 then
+            call TimerStart(udg_DTR_Timer, udg_DTR_TimeInterval, true, function DTR_TimerCallback)
+        endif
+    endif
+
     // Update Data
+
+    call SaveReal(udg_DTR_Table, 4, TargetKey, 0.0) // Reset the counter to prolong its timer
 
     set udg_DTR_TotalDamageTaken = udg_DTR_TotalDamageTaken + TempDmg
     call SaveReal(udg_DTR_Table, 0, TargetKey, udg_DTR_TotalDamageTaken)
