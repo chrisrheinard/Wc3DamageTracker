@@ -1,6 +1,8 @@
+//TESH.scrollpos=171
+//TESH.alwaysfold=0
 //===========================================================================
 // Rheiko Presents
-// Damage Tracker v1.2
+// Damage Tracker v1.2.2
 //===========================================================================
 //
 // Requirements:
@@ -84,10 +86,13 @@ function DTR_LoadTableData takes integer SourceKey, integer TargetKey returns no
 endfunction
 
 function DTR_TimerCallback takes nothing returns nothing
+    // Assign locals
     local integer i = 0
     local integer SourceKey
     local integer TargetKey
+    local integer TargetId
 
+    // Loop through active pairs
     loop
         set i = i + 1
         exitwhen i > udg_DTR_ActivePairs
@@ -95,6 +100,7 @@ function DTR_TimerCallback takes nothing returns nothing
         set SourceKey = GetHandleId(udg_DTR_SourceArr[i])
         set TargetKey = GetHandleId(udg_DTR_TargetArr[i])
 
+        // Increase counter if its not expired yet
         if udg_DTR_TimeCounter[i] < udg_DTR_CleanupTime and IsUnitAlive(udg_DTR_TargetArr[i]) then
 
             set udg_DTR_TimeCounter[i] = LoadReal(udg_DTR_Table, 4, TargetKey)
@@ -102,10 +108,15 @@ function DTR_TimerCallback takes nothing returns nothing
             call SaveReal(udg_DTR_Table, 4, TargetKey, udg_DTR_TimeCounter[i])
 
         else
-            if IsUnitAlive(udg_DTR_TargetArr[i]) then                
+        
+            // Clear data
+            if IsUnitAlive(udg_DTR_TargetArr[i]) then     
+                set TargetId = GetUnitUserData(udg_DTR_TargetArr[i])
                 call DTR_ClearTableData(TargetKey)
+                call GroupRemoveUnit(udg_DTR_TargetPairGroup[TargetId], udg_DTR_SourceArr[i])
             endif
-
+            
+            // Deindex
             set udg_DTR_SourceArr[i] = udg_DTR_SourceArr[udg_DTR_ActivePairs]
             set udg_DTR_SourceArr[udg_DTR_ActivePairs] = null
             set udg_DTR_TargetArr[i] = udg_DTR_TargetArr[udg_DTR_ActivePairs]
@@ -123,66 +134,127 @@ function DTR_TimerCallback takes nothing returns nothing
 endfunction
 
 function DTR_OnUnitDeath takes nothing returns boolean
-    local unit Source = GetKillingUnit()
+    // Assign locals
+    local unit Killer = GetKillingUnit()
     local unit Target = GetTriggerUnit()
-    local integer SourceKey = GetHandleId(Source)
+    local integer KillerKey = GetHandleId(Killer)
     local integer TargetKey = GetHandleId(Target)  
-
-    if DTR_ValidateUnit(Source, Target)  then
-        set Source = null
+    local integer TargetId = GetUnitUserData(Target)
+    local integer SourceKey
+    local integer SourceId
+    local group g
+    local unit u
+    
+    // Validate whether source and/or target registered
+    if DTR_ValidateUnit(Killer, Target)  then
+        set Killer = null
         set Target = null
         return false
     endif
     
-    call DTR_LoadTableData(SourceKey, TargetKey)
+    // Loop through the group owned by the target which contains sources
+    set g = udg_DTR_TargetPairGroup[TargetId]
+    set u = FirstOfGroup(g)
+    loop            
+        set SourceKey = GetHandleId(u)
+        set SourceId = GetUnitUserData(u)
+        
+        // Load data of each source
+        call DTR_LoadTableData(SourceKey, TargetKey)
 
-    set udg_DTR_OverallDamagePercentage = 0.0
-    set udg_DTR_SpellDamagePercentage = 0.0
-    set udg_DTR_PhysDamagePercentage = 0.0
+        set udg_DTR_OverallContribution[SourceId] = 0.0
+        set udg_DTR_SpellContribution[SourceId] = 0.0
+        set udg_DTR_PhysContribution[SourceId] = 0.0
 
-    // Ensure total damage taken is not 0
-    if udg_DTR_TotalDamageTaken > 0.0 then
-        set udg_DTR_OverallDamagePercentage = (udg_DTR_TotalUnitDamage / udg_DTR_TotalDamageTaken) * 100
-    endif
+        // Ensure total damage taken is not 0
+        if udg_DTR_TotalDamageTaken > 0.0 then
+            set udg_DTR_OverallContribution[SourceId] = (udg_DTR_TotalUnitDamage / udg_DTR_TotalDamageTaken) * 100
+        endif
 
-    if udg_DTR_TotalSpellDamageTaken > 0.0 then
-        set udg_DTR_SpellDamagePercentage = (udg_DTR_TotalSpellDamage / udg_DTR_TotalSpellDamageTaken) * 100
-    endif
+        if udg_DTR_TotalSpellDamageTaken > 0.0 then
+            set udg_DTR_SpellContribution[SourceId] = (udg_DTR_TotalSpellDamage / udg_DTR_TotalSpellDamageTaken) * 100
+        endif
 
-    if udg_DTR_TotalPhysDamageTaken > 0.0 then
-        set udg_DTR_PhysDamagePercentage = (udg_DTR_TotalPhysicalDamage / udg_DTR_TotalPhysDamageTaken) * 100
-    endif
-
-    set udg_DTR_Source = Source
+        if udg_DTR_TotalPhysDamageTaken > 0.0 then
+            set udg_DTR_PhysContribution[SourceId] = (udg_DTR_TotalPhysicalDamage / udg_DTR_TotalPhysDamageTaken) * 100
+        endif
+        
+        // Add them to a temp group for accessibility
+        call GroupAddUnit(udg_DTR_Sources, u)
+        
+        call GroupRemoveUnit(g, u)        
+        set u = FirstOfGroup(g)
+        exitwhen u==null
+    endloop   
+    
+    // Load data of the killer
+    call DTR_LoadTableData(KillerKey, TargetKey)
+    
+    set udg_DTR_Source = Killer
     set udg_DTR_Target = Target
-
+    
     set udg_DTR_TrackEvent = 0.0 
     set udg_DTR_TrackEvent = 2.0
     set udg_DTR_TrackEvent = 0.0 
+    
+    // Reset data
+    
+    set g = udg_DTR_TargetPairGroup[TargetId]
+    set u = FirstOfGroup(g)
+    loop              
+        set SourceId = GetUnitUserData(u)
+
+        set udg_DTR_OverallContribution[SourceId] = 0.0
+        set udg_DTR_SpellContribution[SourceId] = 0.0
+        set udg_DTR_PhysContribution[SourceId] = 0.0
+        
+        call GroupRemoveUnit(g, u)
+        set u = FirstOfGroup(g)
+        exitwhen u==null
+    endloop
+    
+    set udg_DTR_TotalDamageTaken = 0.0
+    set udg_DTR_TotalUnitDamage = 0.0
+    
+    set udg_DTR_TotalSpellDamageTaken = 0.0
+    set udg_DTR_TotalSpellDamage = 0.0
+    
+    set udg_DTR_TotalPhysDamageTaken = 0.0
+    set udg_DTR_TotalPhysicalDamage = 0.0
 
     set udg_DTR_Source = null
     set udg_DTR_Target = null
     
     call DTR_ClearTableData(TargetKey)
+    
+    call DestroyGroup(udg_DTR_TargetPairGroup[TargetId])    
+    set udg_DTR_TargetPairGroup[TargetId] = null
+    
+    call GroupClear(udg_DTR_Sources)
 
-    set Source = null
+    set g = null
+    
+    set Killer = null
     set Target = null
     
     return false
 endfunction
 
 function DTR_BeforeUnitDamage takes nothing returns boolean
+    // Assign locals
     local unit Source = udg_DamageEventSource
     local unit Target = udg_DamageEventTarget
     local integer TargetKey = GetHandleId(Target)
     local real TargetHP = GetUnitState(Target, UNIT_STATE_LIFE)
-
+    
+    // Validate whether source and/or target registered
     if DTR_ValidateUnit(Source, Target) then
         set Source = null
         set Target = null
         return false
     endif
 
+    // Save HP value before taking damage for comparison later
     call SaveReal(udg_DTR_Table, 3, TargetKey, TargetHP)
 
     set Source = null
@@ -191,32 +263,45 @@ function DTR_BeforeUnitDamage takes nothing returns boolean
 endfunction
 
 function DTR_OnUnitDamage takes nothing returns boolean
+    // Assign locals
     local unit Source = udg_DamageEventSource
     local unit Target = udg_DamageEventTarget
     local integer SourceKey = GetHandleId(Source)
     local integer TargetKey = GetHandleId(Target)
-    local integer PlayerId = GetPlayerId(GetOwningPlayer(Source))
+    local integer SourcePId = GetPlayerId(GetOwningPlayer(Source))
+    local integer TargetPId = GetPlayerId(GetOwningPlayer(Target))
+    local integer TargetId = GetUnitUserData(Target)
     local real TempDmg = udg_DamageEventAmount
     local real TargetHP = 0.0
 
+    // Validate whether source and/or target registered
     if DTR_ValidateUnit(Source, Target) then
         set Source = null
         set Target = null
         return false
     endif
 
-    // Load data
-    
+    // -> Load data <-    
     set TargetHP = LoadReal(udg_DTR_Table, 3, TargetKey)
 
+    // Damage Correction when damage value is over current HP value
     if TargetHP <= TempDmg then
         set TempDmg = TargetHP
     endif
     
     call DTR_LoadTableData(SourceKey, TargetKey)
+    
+    // Prepares a group to contain all the damage sources
+    if udg_DTR_TargetPairGroup[TargetId] == null then
+        set udg_DTR_TargetPairGroup[TargetId] = CreateGroup()
+    endif
+    
+    // Add the source if its not already in the group
+    if not IsUnitInGroup(Source, udg_DTR_TargetPairGroup[TargetId]) then
+        call GroupAddUnit(udg_DTR_TargetPairGroup[TargetId], Source)
+    endif
 
-    set udg_DTR_TotalPlayerDamage[PlayerId] = udg_DTR_TotalPlayerDamage[PlayerId] + TempDmg
-
+    // Start a timer if auto clean is on
     if udg_DTR_TotalDamageTaken == 0.0 and udg_DTR_AutoCleanup == true then
         
         // New entry
@@ -224,7 +309,7 @@ function DTR_OnUnitDamage takes nothing returns boolean
         set udg_DTR_TimeCounter[udg_DTR_ActivePairs] = 0.0
         set udg_DTR_SourceArr[udg_DTR_ActivePairs] = Source
         set udg_DTR_TargetArr[udg_DTR_ActivePairs] = Target
-
+        
         if udg_DTR_ActivePairs == 1 then
             call TimerStart(udg_DTR_Timer, udg_DTR_TimeInterval, true, function DTR_TimerCallback)
         endif
@@ -234,6 +319,9 @@ function DTR_OnUnitDamage takes nothing returns boolean
 
     call SaveReal(udg_DTR_Table, 4, TargetKey, 0.0) // Reset the counter to prolong its timer
 
+    set udg_DTR_TotalPlayerDamage[SourcePId] = udg_DTR_TotalPlayerDamage[SourcePId] + TempDmg
+    set udg_DTR_TotalPlayerDamageT[TargetPId] = udg_DTR_TotalPlayerDamageT[TargetPId] + TempDmg
+    
     set udg_DTR_TotalDamageTaken = udg_DTR_TotalDamageTaken + TempDmg
     call SaveReal(udg_DTR_Table, 0, TargetKey, udg_DTR_TotalDamageTaken)
 
@@ -247,7 +335,8 @@ function DTR_OnUnitDamage takes nothing returns boolean
         set udg_DTR_TotalSpellDamage = udg_DTR_TotalSpellDamage + TempDmg
         call SaveReal(udg_DTR_Table, TargetKey + 100000, SourceKey, udg_DTR_TotalSpellDamage)
 
-        set udg_DTR_TotalPlayerSpellDamage[PlayerId] = udg_DTR_TotalPlayerSpellDamage[PlayerId] + TempDmg
+        set udg_DTR_TotalPlayerSpellDamage[SourcePId] = udg_DTR_TotalPlayerSpellDamage[SourcePId] + TempDmg
+        set udg_DTR_TotalPlayerSpellDamageT[TargetPId] = udg_DTR_TotalPlayerSpellDamageT[TargetPId] + TempDmg
 
     else
         set udg_DTR_TotalPhysDamageTaken = udg_DTR_TotalPhysDamageTaken + TempDmg
@@ -256,7 +345,8 @@ function DTR_OnUnitDamage takes nothing returns boolean
         set udg_DTR_TotalPhysicalDamage = udg_DTR_TotalPhysicalDamage + TempDmg
         call SaveReal(udg_DTR_Table, TargetKey + 200000, SourceKey, udg_DTR_TotalPhysicalDamage)
 
-        set udg_DTR_TotalPlayerPhysDamage[PlayerId] = udg_DTR_TotalPlayerPhysDamage[PlayerId] + TempDmg
+        set udg_DTR_TotalPlayerPhysDamage[SourcePId] = udg_DTR_TotalPlayerPhysDamage[SourcePId] + TempDmg
+        set udg_DTR_TotalPlayerPhysDamageT[TargetPId] = udg_DTR_TotalPlayerPhysDamageT[TargetPId] + TempDmg
 
     endif        
 
@@ -267,6 +357,16 @@ function DTR_OnUnitDamage takes nothing returns boolean
     set udg_DTR_TrackEvent = 1.0
     set udg_DTR_TrackEvent = 0.0 
 
+    // Reset data
+    set udg_DTR_TotalDamageTaken = 0.0
+    set udg_DTR_TotalUnitDamage = 0.0
+    
+    set udg_DTR_TotalSpellDamageTaken = 0.0
+    set udg_DTR_TotalSpellDamage = 0.0
+    
+    set udg_DTR_TotalPhysDamageTaken = 0.0
+    set udg_DTR_TotalPhysicalDamage = 0.0
+    
     set udg_DTR_Source = null
     set udg_DTR_Target = null
 
