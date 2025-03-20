@@ -5,6 +5,8 @@ https://www.hiveworkshop.com/threads/damage-tracker-v1-2-3.358945/
 
 <details>
 <summary>Changelogs</summary>
+The list of changes throughout each version:
+
 - v1.2.3
   * Merged GetDamageTrackerData trigger into DamageTracker trigger
   * You can now run GetData (Trigger Variable) instead
