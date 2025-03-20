@@ -1,8 +1,6 @@
-//TESH.scrollpos=171
-//TESH.alwaysfold=0
 //===========================================================================
 // Rheiko Presents
-// Damage Tracker v1.2.2
+// Damage Tracker v1.2.3
 //===========================================================================
 //
 // Requirements:
@@ -48,6 +46,36 @@
 //
 //===========================================================================
 
+
+//=========== API ============
+
+function GetDamageTrackerData takes nothing returns boolean
+    local integer SourceKey
+    local integer TargetKey    
+
+    if udg_DTR_SourceParam != null and udg_DTR_TargetParam != null then
+        set SourceKey = GetHandleId(udg_DTR_SourceParam)
+        set TargetKey = GetHandleId(udg_DTR_TargetParam)
+
+        // Load all the total damage taken
+        set udg_DTR_TotalDamageTaken = LoadReal(udg_DTR_Table, 0, TargetKey)
+        set udg_DTR_TotalSpellDamageTaken = LoadReal(udg_DTR_Table, 1, TargetKey)
+        set udg_DTR_TotalPhysDamageTaken = LoadReal(udg_DTR_Table, 2, TargetKey)
+
+        // Load all the total damage dealt
+        set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey)
+        set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey)
+        set udg_DTR_TotalPhysicalDamage = LoadReal(udg_DTR_Table, TargetKey + 200000, SourceKey)
+     
+        return true
+    endif
+
+    return false
+endfunction
+
+
+//===========================================================================
+
 function IsUnitAlive takes unit u returns boolean    
     return (GetWidgetLife(u) > 0.405) 
 endfunction
@@ -83,6 +111,30 @@ function DTR_LoadTableData takes integer SourceKey, integer TargetKey returns no
     set udg_DTR_TotalUnitDamage = LoadReal(udg_DTR_Table, TargetKey, SourceKey)
     set udg_DTR_TotalSpellDamage = LoadReal(udg_DTR_Table, TargetKey + 100000, SourceKey)
     set udg_DTR_TotalPhysicalDamage = LoadReal(udg_DTR_Table, TargetKey + 200000, SourceKey)
+endfunction
+
+function DTR_UpdateTopContributor takes unit source, real damage, integer damageType returns nothing
+    if damageType == 1 then
+        if damage > udg_DTR_TopContribution then
+            set udg_DTR_TopContribution = damage
+            set udg_DTR_TopContributor = source
+        endif
+    endif
+
+    if damageType == 2 then
+        if damage > udg_DTR_TopSpellContribution then
+            set udg_DTR_TopSpellContribution = damage
+            set udg_DTR_TopSpellContributor = source
+        endif
+    endif
+
+    if damageType == 3 then
+        if damage > udg_DTR_TopPhysContribution then
+            set udg_DTR_TopPhysContribution = damage
+            set udg_DTR_TopPhysContributor = source
+        endif
+    endif
+    
 endfunction
 
 function DTR_TimerCallback takes nothing returns nothing
@@ -178,6 +230,11 @@ function DTR_OnUnitDeath takes nothing returns boolean
         if udg_DTR_TotalPhysDamageTaken > 0.0 then
             set udg_DTR_PhysContribution[SourceId] = (udg_DTR_TotalPhysicalDamage / udg_DTR_TotalPhysDamageTaken) * 100
         endif
+
+        // Calculate top contributors
+        call DTR_UpdateTopContributor(u, udg_DTR_OverallContribution[SourceId], 1)
+        call DTR_UpdateTopContributor(u, udg_DTR_SpellContribution[SourceId], 2)
+        call DTR_UpdateTopContributor(u, udg_DTR_PhysContribution[SourceId], 3)
         
         // Add them to a temp group for accessibility
         call GroupAddUnit(udg_DTR_Sources, u)
@@ -212,6 +269,10 @@ function DTR_OnUnitDeath takes nothing returns boolean
         set u = FirstOfGroup(g)
         exitwhen u==null
     endloop
+
+    set udg_DTR_TopContribution = 0.0
+    set udg_DTR_TopSpellContribution = 0.0
+    set udg_DTR_TopPhysContribution = 0.0
     
     set udg_DTR_TotalDamageTaken = 0.0
     set udg_DTR_TotalUnitDamage = 0.0
@@ -381,6 +442,10 @@ function InitTrig_Damage_Tracker takes nothing returns nothing
     local trigger mainTrg = CreateTrigger()
     local trigger secondTrg = CreateTrigger()
     local trigger deathTrg = CreateTrigger()
+    
+    set udg_DTR_GetData = CreateTrigger()
+    call TriggerAddCondition( udg_DTR_GetData, Condition( function GetDamageTrackerData ) )
+
     call TriggerRegisterVariableEvent(mainTrg, "udg_DamageEvent", EQUAL, 1.00)
     call TriggerRegisterVariableEvent(secondTrg, "udg_DamageModifierEvent", EQUAL, 1.00)
     loop
